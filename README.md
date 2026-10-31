@@ -61,40 +61,7 @@ docker compose up -d
 - **Controller Service** = recursos compartidos: el lector de CSV y el pool de conexiones a la BD.
 
 
-### Paso 2 — Extraer: `GetFile`
-
-1. Arrastra el icono **Processor** de la barra superior al lienzo y busca **GetFile**.
-2. Configure → **Properties**:
-
-   | Propiedad | Valor |
-   |---|---|
-   | Input Directory | `/opt/nifi/nifi-current/data/entrada` |
-   | File Filter | `.*\.csv` |
-
-3. Pestaña **Scheduling** → **Run Schedule** = `1 sec`. Con el valor por defecto (`0 sec`) revisa la carpeta sin pausa y consume mucha CPU.
-
-> `GetFile` **borra** el archivo después de leerlo (`Keep Source File = false`). Por eso los originales están en `muestras/`.
-
-### Paso 3 — Cargar: `PutDatabaseRecord`
-
-1. Añade un procesador **PutDatabaseRecord**.
-2. Properties:
-
-   | Propiedad | Valor |
-   |---|---|
-   | Record Reader | `CSVReader` |
-   | Database Type | `PostgreSQL` |
-   | Statement Type | `INSERT` |
-   | Database Connection Pooling Service | `DBCPConnectionPool` |
-   | Table Name | `clientes` |
-
-3. Pestaña **Relationships**: marca *terminate* en `success` y `retry`.
-4. Conecta `GetFile` → `PutDatabaseRecord` (arrastra la flecha desde el centro de GetFile) con la relación `success`.
-
-
-
-
-## 4. Manejo de errores en vivo
+## Manejo de errores en vivo
 
 Copiar `muestras\datos_con_error.csv` a `data\entrada\`.
 
@@ -114,7 +81,7 @@ Para que funcione, el flujo necesita un procesador más:
 Cómo está armada: la página la sirve **nginx**, que reenvía `/subir` a NiFi y `/api/` a **PostgREST**. PostgREST es una pequeña API que lee la tabla.
 
 
-## 7. Reiniciar desde cero
+## Reiniciar desde cero
 
 **Solo la tabla:** botón **Vaciar tabla** de la página. Borra las filas y los `id` vuelven a empezar en 1; el flujo de NiFi no se toca.
 
@@ -138,7 +105,7 @@ Los que llegan desde la página tienen un nombre tipo UUID sin extensión; se ab
 
 **Apagar sin perder nada:** `docker compose stop` (y luego `docker compose start`).
 
-## 8. Problemas comunes
+## Problemas comunes
 
 | Síntoma | Causa / solución |
 |---|---|
