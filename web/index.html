@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo NiFi: CSV a PostgreSQL</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #fff; --text: #1d2433; --muted: #637083; --line: #e2e6ec;
+    --brand: #2563eb; --brand-soft: #e8efff; --ok: #15803d; --ok-soft: #e7f6ec;
+    --err: #b91c1c; --err-soft: #fdecec;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 18px 24px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  h1 { font-size: 20px; margin: 0; }
+  header nav a { color: var(--brand); text-decoration: none; margin-left: 16px; font-weight: 500; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px; display: grid; gap: 20px; grid-template-columns: 440px 1fr; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  code { font-size: 13px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+
+  /* Diagrama del flujo */
+  .pipeline { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .step { flex: 1; min-width: 150px; border: 2px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--card); transition: all .3s; }
+  .step b { display: block; font-size: 14px; }
+  .step span { font-size: 12px; color: var(--muted); }
+  .step.active { border-color: var(--brand); background: var(--brand-soft); }
+  .step.ok { border-color: var(--ok); background: var(--ok-soft); }
+  .step.err { border-color: var(--err); background: var(--err-soft); }
+  .arrow { color: var(--muted); font-size: 20px; }
+
+  /* Pasos del panel de carga */
+  .phase { margin-top: 20px; }
+  .phase-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; margin-bottom: 10px; }
+  .num { width: 22px; height: 22px; border-radius: 50%; background: var(--brand); color: #fff; font-size: 12px; display: grid; place-items: center; flex: none; }
+  .phase.off { opacity: .45; pointer-events: none; }
+
+  .drop { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 2px dashed #c7cfdb; border-radius: 10px; padding: 22px 14px; text-align: center; cursor: pointer; color: var(--muted); transition: all .2s; }
+  .drop:hover, .drop.over { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+  .drop .icon { font-size: 30px; line-height: 1; }
+  .drop strong { color: var(--text); }
+  .drop.has-file { border-style: solid; border-color: var(--brand); background: var(--brand-soft); }
+
+  .or { text-align: center; color: var(--muted); font-size: 13px; margin: 12px 0 8px; }
+  .samples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .sample { font: inherit; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--card); padding: 10px; cursor: pointer; transition: all .15s; }
+  .sample:hover { border-color: var(--brand); }
+  .sample.selected { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+  .sample .t { display: block; font-weight: 600; font-size: 13px; }
+  .sample .d { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .preview-meta { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .preview { border: 1px solid var(--line); border-radius: 8px; overflow: auto; max-height: 190px; }
+  .preview table th { background: var(--bg); position: sticky; top: 0; }
+  .preview table td, .preview table th { font-size: 13px; padding: 6px 10px; }
+
+  button.send { font: inherit; width: 100%; padding: 12px; border: 0; border-radius: 8px; background: var(--brand); color: #fff; font-weight: 600; cursor: pointer; }
+  button.send:disabled { opacity: .5; cursor: not-allowed; }
+
+  .result { margin-top: 14px; border-radius: 8px; padding: 12px 14px; font-size: 14px; display: none; }
+  .result.show { display: block; }
+  .result.info { background: var(--brand-soft); color: var(--brand); }
+  .result.ok { background: var(--ok-soft); color: var(--ok); }
+  .result.err { background: var(--err-soft); color: var(--err); }
+  .result b { display: block; margin-bottom: 2px; }
+
+  details { margin-top: 14px; font-size: 13px; color: var(--muted); }
+  details summary { cursor: pointer; }
+  .log { list-style: none; padding: 0; margin: 8px 0 0; }
+  .log li { padding: 4px 0; border-top: 1px solid var(--line); }
+
+  /* Tabla */
+  .table-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .badge { background: var(--brand-soft); color: var(--brand); border-radius: 99px; padding: 2px 10px; font-size: 13px; font-weight: 600; }
+  .live { font-size: 12px; color: var(--muted); }
+  .live::before { content: "●"; color: var(--ok); margin-right: 4px; }
+  .clear { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--err); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  tr.new td { animation: flash 3s ease-out; }
+  @keyframes flash { from { background: #fff4b8; } to { background: transparent; } }
+  .empty { text-align: center; color: var(--muted); padding: 30px; }
+
+  /* Modal de confirmación */
+  dialog { border: 0; border-radius: 14px; padding: 0; width: min(420px, calc(100% - 32px)); box-shadow: 0 20px 50px rgba(15, 23, 42, .25); color: var(--text); }
+  dialog::backdrop { background: rgba(15, 23, 42, .45); backdrop-filter: blur(2px); }
+  dialog[open] { animation: pop .18s ease-out; }
+  @keyframes pop { from { transform: scale(.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .modal-body { padding: 24px 24px 8px; text-align: center; }
+  .modal-icon { width: 52px; height: 52px; border-radius: 50%; background: var(--err-soft); display: grid; place-items: center; font-size: 24px; margin: 0 auto 14px; }
+  .modal-body h3 { margin: 0 0 8px; font-size: 18px; }
+  .modal-body p { margin: 0 0 6px; color: var(--muted); font-size: 14px; }
+  .modal-list { text-align: left; background: var(--bg); border-radius: 8px; padding: 10px 14px; margin: 14px 0 6px; font-size: 13px; list-style: none; }
+  .modal-list li { padding: 3px 0; }
+  .modal-actions { display: flex; gap: 10px; padding: 16px 24px 22px; }
+  .modal-actions button { flex: 1; font: inherit; font-weight: 600; padding: 10px; border-radius: 8px; cursor: pointer; }
+  .btn-cancel { background: var(--card); border: 1px solid var(--line); color: var(--text); }
+  .btn-cancel:hover { background: var(--bg); }
+  .modal-actions button:focus { outline: none; }
+  .modal-actions button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .btn-danger { background: var(--err); border: 1px solid var(--err); color: #fff; }
+  .btn-danger:hover { filter: brightness(1.1); }
+
+  /* Aviso flotante */
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 20px); background: var(--text); color: #fff; padding: 10px 18px; border-radius: 99px; font-size: 14px; opacity: 0; transition: all .25s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<header>
+  <h1>📦 Demo Apache NiFi: de un CSV a PostgreSQL</h1>
+  <nav>
+    <a href="https://localhost:8443/nifi" target="_blank">Abrir NiFi ↗</a>
+    <a id="adminer" href="http://localhost:18080/?pgsql=postgres&username=nifi&db=demo&ns=public&select=clientes" target="_blank">Abrir Adminer ↗</a>
+  </nav>
+</header>
+
+<main>
+  <section class="pipeline" aria-label="Recorrido del archivo">
+    <div class="step" id="s1"><b>1. Página web</b><span>Tú eliges el CSV</span></div>
+    <div class="arrow">➜</div>
+    <div class="step" id="s2"><b>2. NiFi: ListenHTTP</b><span>Recibe el archivo (Extract)</span></div>
+    <div class="arrow">➜</div>
+    <div class="step" id="s3"><b>3. NiFi: PutDatabaseRecord</b><span>Lee filas e inserta (Transform + Load)</span></div>
+    <div class="arrow">➜</div>
+    <div class="step" id="s4"><b>4. PostgreSQL</b><span>Tabla <code>clientes</code></span></div>
+  </section>
+
+  <section class="card">
+    <h2>Subir un CSV a NiFi</h2>
+    <div style="color:var(--muted);font-size:13px">Columnas esperadas: <code>nombre,email,fecha_registro</code></div>
+
+    <div class="phase">
+      <div class="phase-title"><span class="num">1</span> Elige un archivo</div>
+      <label class="drop" id="drop">
+        <span class="icon" id="dropIcon">📄</span>
+        <strong id="dropTitle">Arrastra aquí tu .csv</strong>
+        <span id="dropSub">o haz clic para buscarlo en tu equipo</span>
+        <input type="file" id="file" accept=".csv,text/csv" hidden>
+      </label>
+      <div class="or">o usa un archivo de ejemplo</div>
+      <div class="samples">
+        <button class="sample" data-sample="datos.csv"><span class="t">✅ Válido</span><span class="d">5 clientes correctos</span></button>
+        <button class="sample" data-sample="datos_con_error.csv"><span class="t">❌ Con error</span><span class="d">fecha inválida</span></button>
+        <button class="sample" data-sample="datos_fecha_latina.csv"><span class="t">📅 Fecha latina</span><span class="d">formato dd/mm/aaaa</span></button>
+      </div>
+    </div>
+
+    <div class="phase off" id="phase2">
+      <div class="phase-title"><span class="num">2</span> Revisa el contenido</div>
+      <div class="preview-meta"><span id="fname">—</span><span id="fcount"></span></div>
+      <div class="preview"><table><thead id="pvHead"></thead><tbody id="pvBody"></tbody></table></div>
+    </div>
+
+    <div class="phase off" id="phase3">
+      <div class="phase-title"><span class="num">3</span> Envíalo a NiFi</div>
+      <button class="send" id="send" disabled>Enviar a NiFi ➜</button>
+      <div class="result" id="result"></div>
+    </div>
+
+    <details>
+      <summary>Historial</summary>
+      <ul class="log" id="log"></ul>
+    </details>
+  </section>
+
+  <section class="card">
+    <div class="table-head">
+      <h2 style="margin:0">Tabla <code>clientes</code> en PostgreSQL <span class="badge" id="count">0</span></h2>
+      <div><span class="live">en vivo</span> <button class="clear" id="clear">Vaciar tabla</button></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>id</th><th>nombre</th><th>email</th><th>fecha_registro</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="4" class="empty">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="confirmClear">
+  <div class="modal-body">
+    <div class="modal-icon">🗑️</div>
+    <h3>¿Vaciar la tabla <code>clientes</code>?</h3>
+    <p id="clearCount">Se borrarán todas las filas.</p>
+    <ul class="modal-list">
+      <li>🔢 Los <b>id</b> volverán a empezar en <b>1</b>.</li>
+      <li>⚙️ El flujo de <b>NiFi</b> no se modifica: sigue funcionando.</li>
+      <li>📁 Los archivos de <code>muestras/</code> no se tocan.</li>
+    </ul>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-cancel" id="cancelClear">Cancelar</button>
+    <button class="btn-danger" id="okClear">Sí, vaciar tabla</button>
+  </div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+// Si un compañero entra por la IP de la red (p. ej. 192.168.1.20:18000), Adminer debe usar esa misma IP
+$("adminer").hostname = location.hostname;
+let content = null, name = null, knownIds = new Set(), firstLoad = true;
+
+function setStep(state) {           // state: {s1:'ok', s2:'active', ...}
+  ["s1", "s2", "s3", "s4"].forEach((s) => $(s).className = "step " + (state[s] || ""));
+}
+
+function log(msg) {
+  const li = document.createElement("li");
+  li.textContent = new Date().toLocaleTimeString() + "  " + msg;
+  $("log").prepend(li);
+}
+
+function showResult(cls, title, text) {
+  $("result").className = "result show " + cls;
+  $("result").innerHTML = "";
+  const b = document.createElement("b"); b.textContent = title;
+  $("result").append(b, document.createTextNode(text));
+  log(title + " " + text);
+}
+
+function cell(tag, text) {
+  const el = document.createElement(tag); el.textContent = text; return el;
+}
+
+function load(fileName, text) {
+  name = fileName; content = text;
+  const lines = text.trim().split(/\r?\n/);
+  const header = lines[0].split(","), data = lines.slice(1);
+
+  $("drop").classList.add("has-file");
+  $("dropIcon").textContent = "✅";
+  $("dropTitle").textContent = fileName;
+  $("dropSub").textContent = "Haz clic o arrastra otro archivo para cambiarlo";
+  document.querySelectorAll(".sample").forEach((b) => b.classList.toggle("selected", b.dataset.sample === fileName));
+
+  $("fname").textContent = fileName;
+  $("fcount").textContent = data.length + (data.length === 1 ? " fila" : " filas");
+  $("pvHead").innerHTML = ""; $("pvBody").innerHTML = "";
+  const hr = document.createElement("tr");
+  header.forEach((h) => hr.append(cell("th", h)));
+  $("pvHead").append(hr);
+  data.forEach((l) => {
+    const tr = document.createElement("tr");
+    l.split(",").forEach((v) => tr.append(cell("td", v)));
+    $("pvBody").append(tr);
+  });
+
+  $("phase2").classList.remove("off");
+  $("phase3").classList.remove("off");
+  $("send").disabled = false;
+  $("result").className = "result";
+  setStep({ s1: "active" });
+}
+
+$("file").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (f) load(f.name, await f.text());
+  e.target.value = "";
+});
+const drop = $("drop");
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", async (e) => {
+  e.preventDefault(); drop.classList.remove("over");
+  const f = e.dataTransfer.files[0];
+  if (f) load(f.name, await f.text());
+});
+document.querySelectorAll("[data-sample]").forEach((b) => b.addEventListener("click", async () => {
+  const r = await fetch("muestras/" + b.dataset.sample, { cache: "no-store" });
+  load(b.dataset.sample, await r.text());
+}));
+
+async function refresh() {
+  try {
+    const r = await fetch("api/clientes?order=id", { cache: "no-store" });
+    if (!r.ok) throw new Error();
+    const rows = await r.json();
+    $("count").textContent = rows.length;
+    $("rows").innerHTML = rows.length ? "" : '<tr><td colspan="4" class="empty">La tabla está vacía</td></tr>';
+    for (const c of rows) {
+      const tr = document.createElement("tr");
+      if (!firstLoad && !knownIds.has(c.id)) tr.className = "new";
+      [c.id, c.nombre, c.email, c.fecha_registro].forEach((v) => tr.append(cell("td", v ?? "")));
+      $("rows").append(tr);
+    }
+    knownIds = new Set(rows.map((c) => c.id));
+    firstLoad = false;
+    return rows.length;
+  } catch {
+    $("rows").innerHTML = '<tr><td colspan="4" class="empty">No se pudo leer la base de datos. ¿Están corriendo los contenedores?</td></tr>';
+    return null;
+  }
+}
+
+$("send").addEventListener("click", async () => {
+  $("send").disabled = true;
+  $("send").textContent = "Enviando…";
+  const before = await refresh();
+  setStep({ s1: "ok", s2: "active" });
+  try {
+    const r = await fetch("subir", { method: "POST", headers: { "Content-Type": "text/csv", filename: name }, body: content });
+    if (!r.ok) throw new Error("NiFi respondió " + r.status);
+  } catch (e) {
+    setStep({ s1: "ok", s2: "err" });
+    showResult("err", "NiFi no recibió el archivo.", " ¿Está el flujo iniciado (Start) en NiFi? " + e.message);
+    resetButton();
+    return;
+  }
+  setStep({ s1: "ok", s2: "ok", s3: "active" });
+  showResult("info", "NiFi recibió el archivo.", " Esperando que lo inserte en la base de datos…");
+  $("send").textContent = "Procesando en NiFi…";
+
+  for (let i = 0; i < 20; i++) {          // hasta ~20 s
+    await new Promise((res) => setTimeout(res, 1000));
+    const now = await refresh();
+    if (now !== null && now > before) {
+      setStep({ s1: "ok", s2: "ok", s3: "ok", s4: "ok" });
+      showResult("ok", `¡Listo! Se insertaron ${now - before} filas nuevas.`, " Míralas resaltadas en la tabla de la derecha.");
+      resetButton();
+      return;
+    }
+  }
+  setStep({ s1: "ok", s2: "ok", s3: "err" });
+  showResult("err", "No entró ninguna fila.", " PostgreSQL rechazó los datos y NiFi guardó el archivo en data/errores. En NiFi verás un cuadro rojo en «Insertar en PostgreSQL».");
+  resetButton();
+});
+
+function resetButton() {
+  $("send").disabled = false;
+  $("send").textContent = "Enviar a NiFi ➜";
+}
+
+function toast(msg) {
+  $("toast").textContent = msg;
+  $("toast").classList.add("show");
+  setTimeout(() => $("toast").classList.remove("show"), 2500);
+}
+
+$("clear").addEventListener("click", () => {
+  const n = Number($("count").textContent);
+  $("clearCount").textContent = n === 0 ? "La tabla ya está vacía, pero puedes reiniciar los id."
+    : `Se borrarán ${n === 1 ? "la única fila" : "las " + n + " filas"} de la tabla.`;
+  $("confirmClear").showModal();
+});
+$("cancelClear").addEventListener("click", () => $("confirmClear").close());
+$("confirmClear").addEventListener("click", (e) => {   // clic fuera del cuadro = cancelar
+  if (e.target === $("confirmClear")) $("confirmClear").close();
+});
+$("okClear").addEventListener("click", async () => {
+  $("confirmClear").close();
+  await fetch("api/rpc/reiniciar_clientes", { method: "POST" });
+  firstLoad = true;
+  await refresh();
+  log("Tabla vaciada.");
+  toast("✓ Tabla vaciada. Los id empiezan de nuevo en 1.");
+});
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

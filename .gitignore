@@ -1,0 +1,9 @@
+# Archivos que NiFi consume o genera durante la demo (las carpetas se conservan con .gitkeep)
+data/entrada/*
+data/errores/*
+!data/**/.gitkeep
+
+__pycache__/
+*.pyc
+.vscode/
+.idea/

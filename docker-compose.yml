@@ -1,0 +1,61 @@
+services:
+  nifi:
+    image: apache/nifi:2.12.0
+    container_name: nifi
+    ports:
+      - "8443:8443"   # NiFi 2.x solo sirve la UI por HTTPS
+    environment:
+      SINGLE_USER_CREDENTIALS_USERNAME: admin
+      SINGLE_USER_CREDENTIALS_PASSWORD: nifi12345678    # NiFi exige mínimo 12 caracteres
+      NIFI_WEB_PROXY_HOST: localhost:8443
+    volumes:
+      - ./data:/opt/nifi/nifi-current/data          # entrada/ y errores/
+      - ./drivers:/opt/nifi/nifi-current/drivers    # driver JDBC de PostgreSQL
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    ports:
+      - "15432:5432"  # 15432 en el host para no chocar con un Postgres local
+    environment:
+      POSTGRES_USER: nifi
+      POSTGRES_PASSWORD: nifi123
+      POSTGRES_DB: demo
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  postgrest:
+    image: postgrest/postgrest:v16.5
+    container_name: postgrest
+    environment:
+      PGRST_DB_URI: postgres://nifi:nifi123@postgres:5432/demo
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: web_anon
+    depends_on:
+      - postgres
+
+  web:
+    image: nginx:1.27-alpine
+    container_name: web
+    ports:
+      - "18000:80"    # página de la demo: http://localhost:18000
+    volumes:
+      - ./web/index.html:/usr/share/nginx/html/index.html:ro
+      - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./muestras:/usr/share/nginx/html/muestras:ro
+    depends_on:
+      - nifi
+      - postgrest
+
+  adminer:
+    image: adminer:6.2.0
+    container_name: adminer
+    ports:
+      - "18080:8080"  # ver la BD desde el navegador: http://localhost:18080
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: pepa-linha   # tema visual (otros: dracula, nette, flat, lavender-light)
+    depends_on:
+      - postgres
